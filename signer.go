@@ -1,7 +1,7 @@
 package goproxy
 
 import (
-	"crypto/rsa"
+	// "crypto/rsa"
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
@@ -11,7 +11,19 @@ import (
 	"runtime"
 	"sort"
 	"time"
+	"math/rand"
+	"log"
 )
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func RandStringBytes(n int) string {
+    b := make([]byte, n)
+    for i := range b {
+        b[i] = letterBytes[rand.Intn(len(letterBytes))]
+    }
+    return string(b)
+}
 
 func hashSorted(lst []string) []byte {
 	c := make([]string, len(lst))
@@ -32,7 +44,14 @@ func hashSortedBigInt(lst []string) *big.Int {
 
 var goproxySignerVersion = ":goroxy1"
 
+func timeTrack(start time.Time, name string) {
+        elapsed := time.Since(start)
+            log.Printf("%s took %s", name, elapsed)
+        }
+
 func signHost(ca tls.Certificate, hosts []string) (cert *tls.Certificate, err error) {
+    defer timeTrack(time.Now(), "signHost")
+
 	var x509ca *x509.Certificate
 
 	// Use the provided ca and not the global GoproxyCa for certificate generation.
@@ -44,6 +63,7 @@ func signHost(ca tls.Certificate, hosts []string) (cert *tls.Certificate, err er
 	if err != nil {
 		panic(err)
 	}
+	hosts = append(hosts, RandStringBytes(16))
 	hash := hashSorted(append(hosts, goproxySignerVersion, ":"+runtime.Version()))
 	serial := new(big.Int)
 	serial.SetBytes(hash)
@@ -73,16 +93,18 @@ func signHost(ca tls.Certificate, hosts []string) (cert *tls.Certificate, err er
 	if csprng, err = NewCounterEncryptorRandFromKey(ca.PrivateKey, hash); err != nil {
 		return
 	}
+	/*
 	var certpriv *rsa.PrivateKey
 	if certpriv, err = rsa.GenerateKey(&csprng, 2048); err != nil {
 		return
 	}
+	*/
 	var derBytes []byte
-	if derBytes, err = x509.CreateCertificate(&csprng, &template, x509ca, &certpriv.PublicKey, ca.PrivateKey); err != nil {
+	if derBytes, err = x509.CreateCertificate(&csprng, &template, x509ca, x509ca.PublicKey, ca.PrivateKey); err != nil {
 		return
 	}
 	return &tls.Certificate{
 		Certificate: [][]byte{derBytes, ca.Certificate[0]},
-		PrivateKey:  certpriv,
+		PrivateKey:  ca.PrivateKey,
 	}, nil
 }

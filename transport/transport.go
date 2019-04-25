@@ -38,12 +38,13 @@ var DefaultTransport RoundTripper = &Transport{Proxy: ProxyFromEnvironment}
 
 // DefaultMaxIdleConnsPerHost is the default value of Transport's
 // MaxIdleConnsPerHost.
-const DefaultMaxIdleConnsPerHost = 2
+const DefaultMaxIdleConnsPerHost = 50
 
 // Transport is an implementation of RoundTripper that supports http,
 // https, and http proxies (for either http or https with CONNECT).
 // Transport can also cache connections for future re-use.
 type Transport struct {
+    name string
 	lk       sync.Mutex
 	idleConn map[string][]*persistConn
 	altProto map[string]RoundTripper // nil or map of URI scheme => RoundTripper
@@ -277,6 +278,7 @@ func (t *Transport) putIdleConn(pconn *persistConn) bool {
 		return false
 	}
 	t.idleConn[key] = append(t.idleConn[key], pconn)
+    // fmt.Println(t.name, "put???????????????????????", t.idleConn)
 	return true
 }
 
@@ -287,6 +289,7 @@ func (t *Transport) getIdleConn(cm *connectMethod) (pconn *persistConn) {
 		t.idleConn = make(map[string][]*persistConn)
 	}
 	key := cm.String()
+	// log.Println("\n\n", t.name, key, t.idleConn, "\n")
 	for {
 		pconns, ok := t.idleConn[key]
 		if !ok {
@@ -303,6 +306,8 @@ func (t *Transport) getIdleConn(cm *connectMethod) (pconn *persistConn) {
 		}
 		if !pconn.isBroken() {
 			return
+		} else {
+		    log.Println("broken conn")
 		}
 	}
 }
@@ -333,8 +338,10 @@ func (t *Transport) dial(network, addr string) (c net.Conn, raddr string, ip *ne
 // is ready to write requests to.
 func (t *Transport) getConn(cm *connectMethod) (*persistConn, error) {
 	if pc := t.getIdleConn(cm); pc != nil {
+	    // log.Println("√√√√√", strings.ToUpper(t.name), "hit!", cm.targetAddr)
 		return pc, nil
 	}
+	// log.Println("×××××", strings.ToUpper(t.name), "miss!", cm.targetAddr)
 
 	conn, raddr, ip, err := t.dial("tcp", cm.addr())
 	if err != nil {
@@ -394,6 +401,15 @@ func (t *Transport) getConn(cm *connectMethod) (*persistConn, error) {
 	}
 
 	if cm.targetScheme == "https" {
+        tlsConfig := tls.Config{}
+        host := strings.Split(cm.targetAddr, ":")[0]
+        tlsConfig.ServerName = host
+        conn = tls.Client(conn, &tlsConfig)
+		if err = conn.(*tls.Conn).Handshake(); err != nil {
+			return nil, err
+		}
+
+	    /*
 		// Initiate TLS and check remote host name against certificate.
 		conn = tls.Client(conn, t.TLSClientConfig)
 		if err = conn.(*tls.Conn).Handshake(); err != nil {
@@ -404,6 +420,7 @@ func (t *Transport) getConn(cm *connectMethod) (*persistConn, error) {
 				return nil, err
 			}
 		}
+		*/
 		pconn.conn = conn
 	}
 
@@ -631,7 +648,7 @@ func (pc *persistConn) readLoop() {
 		// Wait for the just-returned response body to be fully consumed
 		// before we race and peek on the underlying bufio reader.
 		if waitForBodyRead != nil {
-			<-waitForBodyRead
+            <-waitForBodyRead
 		}
 	}
 }

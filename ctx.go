@@ -4,7 +4,15 @@ import (
 	"crypto/tls"
 	"net/http"
 	"regexp"
+
+	"github.com/elazarl/goproxy/transport"
 )
+
+var tr *transport.MultiConnTransport
+
+func init() {
+    tr = transport.NewMultiConnTransport()
+}
 
 // ProxyCtx is the Proxy context, contains useful information about every request. It is passed to
 // every user function. Also used as a logger.
@@ -40,10 +48,13 @@ func (f RoundTripperFunc) RoundTrip(req *http.Request, ctx *ProxyCtx) (*http.Res
 }
 
 func (ctx *ProxyCtx) RoundTrip(req *http.Request) (*http.Response, error) {
+    return tr.RoundTrip(req)
+    /*
 	if ctx.RoundTripper != nil {
 		return ctx.RoundTripper.RoundTrip(req, ctx)
 	}
 	return ctx.proxy.Tr.RoundTrip(req)
+	*/
 }
 
 func (ctx *ProxyCtx) printf(msg string, argv ...interface{}) {
