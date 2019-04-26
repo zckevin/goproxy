@@ -63,53 +63,6 @@ func NewMultiConnTransport() *MultiConnTransport {
     return &mt
 }
 
-/*
-func (mt *MultiConnTransport) fetch(ctx context.Context, req *http.Request, config ServerConfig) (*http.Response, error){
-    var port string
-    if (req.URL.Scheme == "https") {
-        port = ":443"
-    } else {
-        port = ":80"
-    }
-
-    req = req.WithContext(ctx)
-
-    conn, err := CreateTCPConn(config, req.Host + port)
-    if err != nil {
-        return nil, err
-    }
-
-    tlsConfig := tls.Config{}
-    tlsConfig.ServerName = req.Host
-    tlsConn := tls.Client(conn, &tlsConfig)
-    err = tlsConn.Handshake()
-    if err != nil {
-        return nil, err
-    }
-
-    err = req.Write(tlsConn)
-    if err != nil {
-        return nil, err
-    }
-
-    var resp *http.Response
-    respCh := make(chan struct{})
-
-    go func() {
-        buf := bufio.NewReader(tlsConn)
-        resp, err = http.ReadResponse(buf, req)
-        respCh <- struct{}{}
-    }()
-    <-respCh
-
-    if (resp != nil) {
-        return resp, nil
-    } else {
-        return nil, err
-    }
-}
-*/
-
 type FastBody struct {
     all int
     pipeReader *io.PipeReader
@@ -205,6 +158,7 @@ func(mt *MultiConnTransport) FetchMulti(req *http.Request, resultCh chan *http.R
                     // link write process END here
                     bufCache = nil
                     log.Println(err)
+                    close(stopAllCh)
                     return
                 }
 
@@ -221,6 +175,7 @@ func(mt *MultiConnTransport) FetchMulti(req *http.Request, resultCh chan *http.R
                     log.Println("***END***", body.all, correctBodyLen)
                     body.Close()
                     close(stopAllCh)
+                    return
                 }
             }
         }
@@ -243,6 +198,8 @@ func(mt *MultiConnTransport) FetchMulti(req *http.Request, resultCh chan *http.R
                 if len(bufCache) == 1 {
                     forwardCh <- struct{}{}
                 }
+            case <-stopAllCh:
+                return
             }
         }
     }()
@@ -271,7 +228,7 @@ func(mt *MultiConnTransport) FetchMulti(req *http.Request, resultCh chan *http.R
         }
         lk.Unlock()
 
-        // 
+        // reader
         go func(b io.ReadCloser, first bool) {
             // if buf is defined here
             // will be overwriten by later write
@@ -338,6 +295,7 @@ func(mt *MultiConnTransport) FetchMulti(req *http.Request, resultCh chan *http.R
                     // body.pipeWriter.Close()
                     if !bufChClosed {
                         log.Println("eof")
+                        // TODO: fix `close of closed channel`
                         close(bufCh)
                         bufChClosed = true
                     }
